@@ -1,2 +1,2 @@
-# md
-Just for md files
+# MD Dosyalarım
+Sol menüden ulaşmak istediğiniz rehberi seçebilirsiniz. 
