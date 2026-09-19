@@ -1,0 +1,63 @@
+<!DOCTYPE html>
+<html lang="tr">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+
+    <title>Okan Aytimur — Rehberler</title>
+
+    <link rel="stylesheet" href="style.css">
+</head>
+
+<body>
+
+<div class="layout">
+
+    <aside class="sidebar">
+        <div class="sidebar-header">
+            <div class="logo">MD</div>
+            <div>
+                <div class="site-title">Okan Aytimur</div>
+                <div class="site-subtitle">Rehberler</div>
+            </div>
+        </div>
+
+        <div class="search-box">
+            <input
+                type="text"
+                id="search"
+                placeholder="Rehber ara..."
+                autocomplete="off"
+            >
+        </div>
+
+        <nav id="file-list">
+            <div class="loading">Rehberler yükleniyor...</div>
+        </nav>
+    </aside>
+
+
+    <main class="content">
+
+        <div class="topbar">
+            <button id="menu-button" class="menu-button">☰</button>
+            <div id="current-file">Rehberler</div>
+        </div>
+
+        <article id="markdown-content">
+            <div class="loading-content">
+                Yükleniyor...
+            </div>
+        </article>
+
+    </main>
+
+</div>
+
+<div id="overlay"></div>
+
+<script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+<script src="app.js"></script>
+
+</body>
+</html>
