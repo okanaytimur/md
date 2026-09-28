@@ -13,7 +13,8 @@
 3. [Aktarım Scripti](#3-aktarım-scripti)
 4. [Aktarım Sonrası Kontroller](#4-aktarım-sonrası-kontroller)
 5. [Geri Alma](#5-geri-alma)
-6. [Teknik Notlar](#6-teknik-notlar)
+6. [Sadece Adres Güncelleme (Bağımsız Script)](#6-sadece-adres-güncelleme-bağımsız-script)
+7. [Teknik Notlar](#7-teknik-notlar)
 
 ---
 
@@ -476,7 +477,162 @@ COMMIT;
 
 ---
 
-## 6. Teknik Notlar
+## 6. Sadece Adres Güncelleme (Bağımsız Script)
+
+Kullanıcı kayıtlarına dokunmadan, `OB_KULLANICILAR_ADRES` tablosundaki adresleri `ORT_SICIL_ADRES`'ten yeniden çeker. Aktarımdan bağımsız, tek başına çalıştırılabilir.
+
+**MERGE davranışı:** adres satırı varsa günceller, yoksa yeni satır açar.
+
+### 6.1 Yedek (zorunlu)
+
+```sql
+CREATE TABLE OB_KULL_ADRES_YEDEK_20260928 AS SELECT * FROM OB_KULLANICILAR_ADRES;
+```
+
+### 6.2 Önizleme — ne değişecek?
+
+```sql
+WITH SRC AS (
+    SELECT  K.SQ_ID                         AS KULLANICI_SQ_ID,
+            K.KULLANICI_KODU,
+            MK.MAHALLE_KODU                 AS YENI_MAHALLE,      -- FK yoksa NULL
+            CS.CADDE_SOKAK_KODU             AS YENI_CADDE_SOKAK,  -- FK yoksa NULL
+            SUBSTR(A.MAHALLE_ADI,1,40)      AS YENI_MAHALLE_ADI,
+            SUBSTR(CASE
+                     WHEN A.CADDE_ADI IS NOT NULL AND A.SOKAK_ADI IS NOT NULL
+                          THEN A.CADDE_ADI||' '||A.SOKAK_ADI
+                     WHEN A.CADDE_ADI IS NOT NULL THEN A.CADDE_ADI
+                     ELSE A.SOKAK_ADI
+                   END,1,40)                AS YENI_CADDE_ADI,
+            SUBSTR(CASE
+                     WHEN TRIM(A.KAPI_NO) IS NULL AND TRIM(A.ALT_KAPI_NO) IS NULL THEN NULL
+                     WHEN TRIM(A.ALT_KAPI_NO) IS NULL THEN TRIM(A.KAPI_NO)
+                     WHEN TRIM(A.KAPI_NO)     IS NULL THEN TRIM(A.ALT_KAPI_NO)
+                     ELSE TRIM(A.KAPI_NO)||'/'||TRIM(A.ALT_KAPI_NO)
+                   END,1,20)                AS YENI_KAPI_NO,
+            SUBSTR(CASE
+                     WHEN TRIM(A.DAIRE_NO) IS NULL AND TRIM(A.ALT_DAIRE_NO) IS NULL THEN NULL
+                     WHEN TRIM(A.ALT_DAIRE_NO) IS NULL THEN TRIM(A.DAIRE_NO)
+                     WHEN TRIM(A.DAIRE_NO)     IS NULL THEN TRIM(A.ALT_DAIRE_NO)
+                     ELSE TRIM(A.DAIRE_NO)||'/'||TRIM(A.ALT_DAIRE_NO)
+                   END,1,20)                AS YENI_DAIRE_NO,
+            ROW_NUMBER() OVER (PARTITION BY K.SQ_ID
+                               ORDER BY A.KAYIT_TARIHI DESC, A.ROWID DESC) AS RN
+      FROM  OB_KULLANICILAR K
+      JOIN  ORT_SICIL_ADRES A
+             ON A.SICIL_KODU      = K.RF_ORT_SICIL_BILGILERI
+            AND A.ADRES_AKTIF_MI  = 'E'
+      LEFT JOIN ORT_MAHALLE_KOYLER MK ON MK.MAHALLE_KODU     = A.MAHALLE_KODU
+      LEFT JOIN ORT_CADDE_SOKAK   CS ON CS.CADDE_SOKAK_KODU = A.CADDE_SOKAK_KODU
+     WHERE  K.RF_ORT_SICIL_BILGILERI IS NOT NULL
+)
+SELECT  S.KULLANICI_KODU,
+        H.MAHALLE_ADI AS ESKI_MAHALLE, S.YENI_MAHALLE_ADI,
+        H.KAPI_NO     AS ESKI_KAPI,    S.YENI_KAPI_NO,
+        H.DAIRE_NO    AS ESKI_DAIRE,   S.YENI_DAIRE_NO,
+        CASE WHEN H.SQ_ID IS NULL THEN 'YENI SATIR' ELSE 'GUNCELLENECEK' END AS ISLEM
+  FROM  SRC S
+  LEFT JOIN OB_KULLANICILAR_ADRES H ON H.RF_OB_KULLANICILAR = S.KULLANICI_SQ_ID
+ WHERE  S.RN = 1
+ ORDER BY ISLEM, S.KULLANICI_KODU;
+```
+
+### 6.3 Güncelleme
+
+```sql
+MERGE INTO OB_KULLANICILAR_ADRES T
+USING (
+    SELECT * FROM (
+        SELECT  K.SQ_ID                     AS KULLANICI_SQ_ID,
+                MK.MAHALLE_KODU             AS YENI_MAHALLE,
+                CS.CADDE_SOKAK_KODU         AS YENI_CADDE_SOKAK,
+                SUBSTR(A.MAHALLE_ADI,1,40)  AS YENI_MAHALLE_ADI,
+                SUBSTR(CASE
+                         WHEN A.CADDE_ADI IS NOT NULL AND A.SOKAK_ADI IS NOT NULL
+                              THEN A.CADDE_ADI||' '||A.SOKAK_ADI
+                         WHEN A.CADDE_ADI IS NOT NULL THEN A.CADDE_ADI
+                         ELSE A.SOKAK_ADI
+                       END,1,40)            AS YENI_CADDE_ADI,
+                SUBSTR(CASE
+                         WHEN TRIM(A.KAPI_NO) IS NULL AND TRIM(A.ALT_KAPI_NO) IS NULL THEN NULL
+                         WHEN TRIM(A.ALT_KAPI_NO) IS NULL THEN TRIM(A.KAPI_NO)
+                         WHEN TRIM(A.KAPI_NO)     IS NULL THEN TRIM(A.ALT_KAPI_NO)
+                         ELSE TRIM(A.KAPI_NO)||'/'||TRIM(A.ALT_KAPI_NO)
+                       END,1,20)            AS YENI_KAPI_NO,
+                SUBSTR(CASE
+                         WHEN TRIM(A.DAIRE_NO) IS NULL AND TRIM(A.ALT_DAIRE_NO) IS NULL THEN NULL
+                         WHEN TRIM(A.ALT_DAIRE_NO) IS NULL THEN TRIM(A.DAIRE_NO)
+                         WHEN TRIM(A.DAIRE_NO)     IS NULL THEN TRIM(A.ALT_DAIRE_NO)
+                         ELSE TRIM(A.DAIRE_NO)||'/'||TRIM(A.ALT_DAIRE_NO)
+                       END,1,20)            AS YENI_DAIRE_NO,
+                SUBSTR(A.SITE_APARTMAN_ADI,1,100) AS YENI_SITE,
+                SUBSTR(A.BLOK_NO,1,40)            AS YENI_BLOK,
+                ROW_NUMBER() OVER (PARTITION BY K.SQ_ID
+                                   ORDER BY A.KAYIT_TARIHI DESC, A.ROWID DESC) AS RN
+          FROM  OB_KULLANICILAR K
+          JOIN  ORT_SICIL_ADRES A
+                 ON A.SICIL_KODU     = K.RF_ORT_SICIL_BILGILERI
+                AND A.ADRES_AKTIF_MI = 'E'
+          LEFT JOIN ORT_MAHALLE_KOYLER MK ON MK.MAHALLE_KODU     = A.MAHALLE_KODU
+          LEFT JOIN ORT_CADDE_SOKAK   CS ON CS.CADDE_SOKAK_KODU = A.CADDE_SOKAK_KODU
+         WHERE  K.RF_ORT_SICIL_BILGILERI IS NOT NULL
+    ) WHERE RN = 1
+) S
+ON (T.RF_OB_KULLANICILAR = S.KULLANICI_SQ_ID)
+WHEN MATCHED THEN UPDATE SET
+    T.RF_ORT_MAHALLE_KOYLER = S.YENI_MAHALLE,
+    T.RF_ORT_CADDDE_SOKAK   = S.YENI_CADDE_SOKAK,
+    T.MAHALLE_ADI           = NVL(S.YENI_MAHALLE_ADI, T.MAHALLE_ADI),  -- NOT NULL
+    T.CADDE_ADI             = NVL(S.YENI_CADDE_ADI,   T.CADDE_ADI),    -- NOT NULL
+    T.KAPI_NO               = NVL(S.YENI_KAPI_NO,     '0'),            -- NOT NULL
+    T.DAIRE_NO              = S.YENI_DAIRE_NO,
+    T.SITE_APARTMAN_ADI     = S.YENI_SITE,
+    T.BLOK_NO               = S.YENI_BLOK,
+    T.DT_GUNCELLEME_TARIHI  = SYSDATE,
+    T.CH_GUNCELLEYEN        = 'SQL_ADMIN'
+    -- Vatandasin portalden girdigi adresler ezilmesin istersen alt satiri ac:
+    -- WHERE T.KAYDEDEN = 'SQL_ADMIN'
+WHEN NOT MATCHED THEN INSERT
+    (RF_OB_KULLANICILAR, RF_ORT_MAHALLE_KOYLER, RF_ORT_CADDDE_SOKAK,
+     MAHALLE_ADI, CADDE_ADI, KAPI_NO, DAIRE_NO, SITE_APARTMAN_ADI, BLOK_NO,
+     AKTIF_MI, KAYIT_TARIHI, KAYDEDEN)
+VALUES
+    (S.KULLANICI_SQ_ID, S.YENI_MAHALLE, S.YENI_CADDE_SOKAK,
+     NVL(S.YENI_MAHALLE_ADI,'CORUM'), NVL(S.YENI_CADDE_ADI,'CORUM'),
+     NVL(S.YENI_KAPI_NO,'0'), S.YENI_DAIRE_NO, S.YENI_SITE, S.YENI_BLOK,
+     'E', SYSDATE, 'SQL_ADMIN');
+
+COMMIT;
+```
+
+### 6.4 Kontrol
+
+```sql
+-- Hala placeholder adreste olanlar
+SELECT COUNT(*) FROM OB_KULLANICILAR_ADRES
+ WHERE MAHALLE_ADI = 'CORUM' AND KAPI_NO = '0';
+
+-- Sicilde aktif adresi olmadigi icin guncellenemeyenler
+SELECT COUNT(*) FROM OB_KULLANICILAR K
+ WHERE K.RF_ORT_SICIL_BILGILERI IS NOT NULL
+   AND NOT EXISTS (SELECT 1 FROM ORT_SICIL_ADRES A
+                    WHERE A.SICIL_KODU = K.RF_ORT_SICIL_BILGILERI
+                      AND A.ADRES_AKTIF_MI = 'E');
+
+-- Ayni kullanicida birden fazla adres satiri (bos donmeli)
+SELECT RF_OB_KULLANICILAR, COUNT(*) FROM OB_KULLANICILAR_ADRES
+ GROUP BY RF_OB_KULLANICILAR HAVING COUNT(*) > 1;
+```
+
+### 6.5 Uyarılar
+
+- **Vatandaşın portalden girdiği adresler ezilir.** `KAYDEDEN` alanında `SQL_ADMIN` dışında değer varsa (kullanıcı kendi güncellemişse) MERGE onları da ezer. Üretim ortamında `WHERE T.KAYDEDEN = 'SQL_ADMIN'` filtresini açmak daha güvenli.
+- **Bir kullanıcıda birden fazla adres satırı varsa hepsi aynı adrese güncellenir.** Çalıştırmadan önce 6.4'teki mükerrer kontrolünü yap.
+- **`OB_KULLANICILAR_ADRES_LTR` trigger'ı UPDATE'te aktif.** ~10 bin satır log tablosuna yazılacak; tablespace'te yer olduğundan emin ol.
+
+---
+
+## 7. Teknik Notlar
 
 ### 6.1 Eşleştirme mantığı
 
