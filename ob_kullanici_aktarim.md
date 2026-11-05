@@ -102,7 +102,7 @@ SELECT DURUM, COUNT(*) ADET FROM (
 SET SERVEROUTPUT ON SIZE UNLIMITED;
 
 DECLARE
-    -- Adres bilgisi hic yoksa placeholder adres satiri atilsin mi? 'E' = at, 'H' = atma
+    -- Adres bilgisi hic yoksa bos adres satiri atilsin mi? 'E' = at, 'H' = atma
     C_Bos_Adres_Ekle CONSTANT CHAR(1) := 'E';
 
     /*** Sadece OB_KULLANICILAR'da OLMAYAN kullanicilar ***/
@@ -286,67 +286,56 @@ BEGIN
                 X_Site_Apartman_Adi := NULL;
                 X_Blok_No           := NULL;
 
-                IF S.Adres_Mahalle_Kodu IS NULL THEN
-                    /*** Web adresi bos: ORT_SICIL_ADRES'ten en guncel aktif adres ***/
-                    BEGIN
-                        SELECT  Mahalle_Kodu, Cadde_Sokak_Kodu, MAHALLE_ADI, Cadde_Sokak_Adi,
-                                KAPI_NO, ALT_KAPI_NO, DAIRE_NO, ALT_DAIRE_NO,
-                                SITE_APARTMAN_ADI, BLOK_NO
-                          INTO  X_Mahalle, X_Cadde_Sokak, X_Mahalle_Adi, X_Cadde_Sokak_Adi,
-                                X_Kapi_No, X_Alt_Kapi_No, X_Daire_No, X_Alt_Daire_No,
-                                X_Site_Apartman_Adi, X_Blok_No
-                          FROM (
-                                SELECT  Adr.Mahalle_Kodu,
-                                        Adr.Cadde_Sokak_Kodu,
-                                        Adr.MAHALLE_ADI,
-                                        CASE
-                                          WHEN Adr.Cadde_Adi IS NOT NULL AND Adr.Sokak_Adi IS NOT NULL
-                                               THEN Adr.Cadde_Adi||' '||Adr.Sokak_Adi
-                                          WHEN Adr.Cadde_Adi IS NOT NULL THEN Adr.Cadde_Adi
-                                          WHEN Adr.Sokak_Adi IS NOT NULL THEN Adr.Sokak_Adi
-                                        END AS Cadde_Sokak_Adi,
-                                        Adr.KAPI_NO,
-                                        Adr.ALT_KAPI_NO,
-                                        Adr.DAIRE_NO,
-                                        Adr.ALT_DAIRE_NO,
-                                        Adr.SITE_APARTMAN_ADI,
-                                        Adr.BLOK_NO
-                                  FROM  ORT_SICIL_ADRES Adr
-                                 WHERE  Adr.Sicil_Kodu     = S.Sicil_Kodu
-                                   AND  Adr.Adres_Aktif_Mi = 'E'
-                                 ORDER BY Adr.Kayit_Tarihi DESC
-                               )
-                         WHERE ROWNUM = 1;
+                /*** Adres her zaman ORT_SICIL_ADRES'ten alinir (Bolum 6 ile ayni mantik):
+                     en guncel aktif adres, esitlikte ROWID DESC.
+                     Web adres alanlari (Adres_Mahalle_Kodu vb.) KULLANILMAZ: mahalle/cadde
+                     adi icermiyorlar. ***/
+                BEGIN
+                    SELECT  Mahalle_Kodu, Cadde_Sokak_Kodu, MAHALLE_ADI, Cadde_Sokak_Adi,
+                            KAPI_NO, ALT_KAPI_NO, DAIRE_NO, ALT_DAIRE_NO,
+                            SITE_APARTMAN_ADI, BLOK_NO
+                      INTO  X_Mahalle, X_Cadde_Sokak, X_Mahalle_Adi, X_Cadde_Sokak_Adi,
+                            X_Kapi_No, X_Alt_Kapi_No, X_Daire_No, X_Alt_Daire_No,
+                            X_Site_Apartman_Adi, X_Blok_No
+                      FROM (
+                            SELECT  Adr.Mahalle_Kodu,
+                                    Adr.Cadde_Sokak_Kodu,
+                                    Adr.MAHALLE_ADI,
+                                    CASE
+                                      WHEN Adr.Cadde_Adi IS NOT NULL AND Adr.Sokak_Adi IS NOT NULL
+                                           THEN Adr.Cadde_Adi||' '||Adr.Sokak_Adi
+                                      WHEN Adr.Cadde_Adi IS NOT NULL THEN Adr.Cadde_Adi
+                                      ELSE Adr.Sokak_Adi
+                                    END AS Cadde_Sokak_Adi,
+                                    Adr.KAPI_NO,
+                                    Adr.ALT_KAPI_NO,
+                                    Adr.DAIRE_NO,
+                                    Adr.ALT_DAIRE_NO,
+                                    Adr.SITE_APARTMAN_ADI,
+                                    Adr.BLOK_NO
+                              FROM  ORT_SICIL_ADRES Adr
+                             WHERE  Adr.Sicil_Kodu     = S.Sicil_Kodu
+                               AND  Adr.Adres_Aktif_Mi = 'E'
+                             ORDER BY Adr.Kayit_Tarihi DESC, Adr.ROWID DESC
+                           )
+                     WHERE ROWNUM = 1;
 
-                        -- Birlestirme SQL DISINDA yapilir (PLS-00231)
-                        X_Kapi_No  := No_Birlestir(X_Kapi_No,  X_Alt_Kapi_No);
-                        X_Daire_No := No_Birlestir(X_Daire_No, X_Alt_Daire_No);
+                    -- Birlestirme SQL DISINDA yapilir (PLS-00231)
+                    X_Kapi_No  := No_Birlestir(X_Kapi_No,  X_Alt_Kapi_No);
+                    X_Daire_No := No_Birlestir(X_Daire_No, X_Alt_Daire_No);
 
-                        -- FK dogrulamasi: parent'ta yoksa NULL birak
-                        SELECT COUNT(*) INTO X_Var_Mi
-                          FROM ORT_MAHALLE_KOYLER WHERE Mahalle_Kodu = X_Mahalle;
-                        IF NVL(X_Var_Mi,0) = 0 THEN X_Mahalle := NULL; END IF;
-
-                        SELECT COUNT(*) INTO X_Var_Mi
-                          FROM ORT_CADDE_SOKAK WHERE Cadde_Sokak_Kodu = X_Cadde_Sokak;
-                        IF NVL(X_Var_Mi,0) = 0 THEN X_Cadde_Sokak := NULL; END IF;
-
-                    EXCEPTION
-                        WHEN NO_DATA_FOUND THEN NULL;   -- adres yok, alanlar NULL kalsin
-                    END;
-                ELSE
-                    /*** Web adresi dolu ***/
+                    -- FK dogrulamasi: parent'ta yoksa NULL birak
                     SELECT COUNT(*) INTO X_Var_Mi
-                      FROM ORT_MAHALLE_KOYLER WHERE Mahalle_Kodu = S.Adres_Mahalle_Kodu;
-                    IF NVL(X_Var_Mi,0) > 0 THEN X_Mahalle := S.Adres_Mahalle_Kodu; END IF;
+                      FROM ORT_MAHALLE_KOYLER WHERE Mahalle_Kodu = X_Mahalle;
+                    IF NVL(X_Var_Mi,0) = 0 THEN X_Mahalle := NULL; END IF;
 
                     SELECT COUNT(*) INTO X_Var_Mi
-                      FROM ORT_CADDE_SOKAK WHERE Cadde_Sokak_Kodu = S.Adres_Cadde_Sokak_Kodu;
-                    IF NVL(X_Var_Mi,0) > 0 THEN X_Cadde_Sokak := S.Adres_Cadde_Sokak_Kodu; END IF;
+                      FROM ORT_CADDE_SOKAK WHERE Cadde_Sokak_Kodu = X_Cadde_Sokak;
+                    IF NVL(X_Var_Mi,0) = 0 THEN X_Cadde_Sokak := NULL; END IF;
 
-                    X_Kapi_No  := No_Birlestir(S.Adres_Kapi, S.Adres_Alt_Kapi);
-                    X_Daire_No := TRIM(S.Adres_Daire);
-                END IF;
+                EXCEPTION
+                    WHEN NO_DATA_FOUND THEN NULL;   -- sicilde aktif adres yok, alanlar NULL kalsin
+                END;
 
                 X_Adres_Var := (X_Mahalle           IS NOT NULL
                              OR X_Mahalle_Adi       IS NOT NULL
@@ -359,9 +348,9 @@ BEGIN
                     Row_Kayit_Adr.RF_OB_KULLANICILAR    := X_Uniq_Kod;
                     Row_Kayit_Adr.RF_ORT_MAHALLE_KOYLER := X_Mahalle;
                     Row_Kayit_Adr.RF_ORT_CADDDE_SOKAK   := X_Cadde_Sokak;
-                    -- NOT NULL kolonlar: NVL zorunlu
-                    Row_Kayit_Adr.MAHALLE_ADI           := SUBSTR(NVL(X_Mahalle_Adi,'CORUM'),1,40);
-                    Row_Kayit_Adr.CADDE_ADI             := SUBSTR(NVL(X_Cadde_Sokak_Adi,'CORUM'),1,40);
+                    -- NOT NULL kolonlar: veri yoksa bos (' ') yazilir; Oracle'da '' = NULL oldugu icin tek bosluk
+                    Row_Kayit_Adr.MAHALLE_ADI           := SUBSTR(NVL(X_Mahalle_Adi,' '),1,40);
+                    Row_Kayit_Adr.CADDE_ADI             := SUBSTR(NVL(X_Cadde_Sokak_Adi,' '),1,40);
                     -- KAPI_NO VARCHAR2(20) NOT NULL: metin olarak, '12/A' korunur
                     Row_Kayit_Adr.KAPI_NO               := SUBSTR(NVL(X_Kapi_No,'0'),1,20);
                     Row_Kayit_Adr.DAIRE_NO              := SUBSTR(X_Daire_No,1,20);
@@ -441,9 +430,9 @@ SELECT COUNT(*) TOPLAM,
        SUM(CASE WHEN VERGI_NO IS NOT NULL THEN 1 ELSE 0 END) TUZEL
   FROM OB_KULLANICILAR WHERE KAYDEDEN = 'SQL_ADMIN';
 
--- Placeholder adresle giden kayit sayisi
+-- Bos adresle giden kayit sayisi
 SELECT COUNT(*) FROM OB_KULLANICILAR_ADRES
- WHERE KAYDEDEN='SQL_ADMIN' AND MAHALLE_ADI='CORUM' AND KAPI_NO='0';
+ WHERE KAYDEDEN='SQL_ADMIN' AND TRIM(MAHALLE_ADI) IS NULL AND KAPI_NO='0';
 ```
 
 ---
@@ -582,8 +571,8 @@ ON (T.RF_OB_KULLANICILAR = S.KULLANICI_SQ_ID)
 WHEN MATCHED THEN UPDATE SET
     T.RF_ORT_MAHALLE_KOYLER = S.YENI_MAHALLE,
     T.RF_ORT_CADDDE_SOKAK   = S.YENI_CADDE_SOKAK,
-    T.MAHALLE_ADI           = NVL(S.YENI_MAHALLE_ADI, T.MAHALLE_ADI),  -- NOT NULL
-    T.CADDE_ADI             = NVL(S.YENI_CADDE_ADI,   T.CADDE_ADI),    -- NOT NULL
+    T.MAHALLE_ADI           = NVL(S.YENI_MAHALLE_ADI, ' '),            -- NOT NULL, yoksa bos
+    T.CADDE_ADI             = NVL(S.YENI_CADDE_ADI,   ' '),            -- NOT NULL, yoksa bos
     T.KAPI_NO               = NVL(S.YENI_KAPI_NO,     '0'),            -- NOT NULL
     T.DAIRE_NO              = S.YENI_DAIRE_NO,
     T.SITE_APARTMAN_ADI     = S.YENI_SITE,
@@ -598,9 +587,18 @@ WHEN NOT MATCHED THEN INSERT
      AKTIF_MI, KAYIT_TARIHI, KAYDEDEN)
 VALUES
     (S.KULLANICI_SQ_ID, S.YENI_MAHALLE, S.YENI_CADDE_SOKAK,
-     NVL(S.YENI_MAHALLE_ADI,'CORUM'), NVL(S.YENI_CADDE_ADI,'CORUM'),
+     NVL(S.YENI_MAHALLE_ADI,' '), NVL(S.YENI_CADDE_ADI,' '),
      NVL(S.YENI_KAPI_NO,'0'), S.YENI_DAIRE_NO, S.YENI_SITE, S.YENI_BLOK,
      'E', SYSDATE, 'SQL_ADMIN');
+
+-- Eski aktarimlardan kalan 'CORUM' degerlerini temizle
+-- (sicilde aktif adresi olmadigi icin MERGE'e girmeyen satirlar dahil)
+UPDATE OB_KULLANICILAR_ADRES
+   SET MAHALLE_ADI          = CASE WHEN MAHALLE_ADI = 'CORUM' THEN ' ' ELSE MAHALLE_ADI END,
+       CADDE_ADI            = CASE WHEN CADDE_ADI   = 'CORUM' THEN ' ' ELSE CADDE_ADI   END,
+       DT_GUNCELLEME_TARIHI = SYSDATE,
+       CH_GUNCELLEYEN       = 'SQL_ADMIN'
+ WHERE MAHALLE_ADI = 'CORUM' OR CADDE_ADI = 'CORUM';
 
 COMMIT;
 ```
@@ -608,9 +606,9 @@ COMMIT;
 ### 6.4 Kontrol
 
 ```sql
--- Hala placeholder adreste olanlar
+-- Hala bos adreste olanlar
 SELECT COUNT(*) FROM OB_KULLANICILAR_ADRES
- WHERE MAHALLE_ADI = 'CORUM' AND KAPI_NO = '0';
+ WHERE TRIM(MAHALLE_ADI) IS NULL AND KAPI_NO = '0';
 
 -- Sicilde aktif adresi olmadigi icin guncellenemeyenler
 SELECT COUNT(*) FROM OB_KULLANICILAR K
@@ -660,7 +658,7 @@ SELECT RF_OB_KULLANICILAR, COUNT(*) FROM OB_KULLANICILAR_ADRES
 - **Şifreler taşınmaz.** `SIFRE`, `SIFRE_HASH` (BLOB), `SIFRE_SALT` (BLOB) NULL bırakılır — legacy format uyumsuz. Tüm kullanıcılar ilk girişte şifre sıfırlayacak.
 - **Telefon 10 haneye normalize edilir.** Baştaki `90`/`0` atılır, 10 hane değilse NULL yazılır (kolon `VARCHAR2(10)`).
 - **`KAPI_NO` metin olarak taşınır.** Kolon `VARCHAR2(20) NOT NULL`; `12/A` gibi değerler korunur, boşsa `'0'` yazılır.
-- **`MAHALLE_ADI` / `CADDE_ADI` NOT NULL.** Veri yoksa `'CORUM'` placeholder yazılır — farklı belediyede bu sabiti değiştir.
+- **`MAHALLE_ADI` / `CADDE_ADI` NOT NULL.** Veri yoksa boş yazılır. Oracle'da `''` NULL sayıldığı için boş değer tek boşluk (`' '`) olarak tutulur; sorgularda `TRIM(MAHALLE_ADI) IS NULL` ile bulunur.
 - **Mükerrer `KULLANICI_KODU`.** DB'de unique constraint yok. `ROW_NUMBER()` ile kazanan belirlenir: e-postası olan > GSM'i olan > en yeni kayıt.
 - **Satır bazlı hata yönetimi.** `SAVEPOINT` + `WHEN OTHERS` sayesinde tek hatalı kayıt tüm aktarımı durdurmaz.
 
