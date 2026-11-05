@@ -24,7 +24,6 @@ Uygulama sırası: **1 → 2 → 3 → 4**
 ```sql
 CREATE OR REPLACE FORCE VIEW VW_TC_SICIL_LISTESI
 (TC_KIMLIK_NO, SICIL_NO, PERSONEL_TURU)
-BEQUEATH DEFINER
 AS
 -- MEMUR
 SELECT
@@ -37,9 +36,7 @@ JOIN per_sicil_bilgi sic
 JOIN mem_ozluk_bilgi ob
     ON ob.rf_per_sicil_bilgi = sic.sq_id
 WHERE nuf.qt_tc_kimlik_no IS NOT NULL
-
 UNION ALL
-
 -- ISCI
 SELECT
     nuf.qt_tc_kimlik_no   AS tc_kimlik_no,
@@ -52,6 +49,8 @@ JOIN ism_ozluk_bilgi ob
     ON ob.rf_per_sicil_bilgi = sic.sq_id
 WHERE nuf.qt_tc_kimlik_no IS NOT NULL;
 ```
+
+> Not: `BEQUEATH DEFINER` Oracle 12c+ söz dizimidir; 11g'de `ORA-00905: missing keyword` verdiği için kaldırıldı (zaten varsayılan davranış). View içinde boş satır bırakılmadı: SQL*Plus'ta boş satır komutu böler.
 
 > Not: Bir kişi hem memur hem işçi kaydına sahipse view'da iki satır çıkar. Rol kontrolü `EXISTS` ile yapıldığı için sorun değil.
 
